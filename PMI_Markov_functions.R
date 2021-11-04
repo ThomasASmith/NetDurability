@@ -3,78 +3,6 @@
 # February 2020 - November 2020
 
 ######################### READING DATA ##############################
-# Read raw data and code the required status variables
-read_pooled_llin_data <- function(){
-  #suppress warning about missing data
-  suppressWarnings(df0 <- read.csv("../pooled_llin.sas7bdat.csv"))
-  df0=df0[!is.na(df0$PBrand),] 
-  df0=df0[df0$PCountry !='Rwanda' & df0$PCountry !='' & df0$PCountry !='Mozambique' 
-          & df0$PCountry !='Angola' & df0$PCountry !='Malawi' & df0$PCountry !='Benin' & df0$PCountry !='Zambia',]
-  if(required_country !='All'){
-    df0=df0[df0$PCountry == required_country,]
-  }
-  Country <- droplevels(df0$PCountry)
-  # CLASSIFICATION OF STATUS AT TIME OF SURVEY
-  Status = as.character(with(df0,ifelse(PLLINUse=='None','Not in use','Not used last night')))
-  
-  # Values for PReasonAbsent are:
-  #[1] ""                          "1"                         "Being Washed"             
-  #[4] "Damaged"                   "Destroyed"                 "Destroyed--Burned by fire"
-  #[7] "Discarded--Too torn up"    "Discarded-Not killing mos" "Do Not Know"              
-  #[10] "Eaten by Rats"             "Lost/Stolen"               "Other"                    
-  #[13] "Other Use"                 "Replaced (New/Separate IT" "Sold/Given away"          
-  #[16] "Stored"                    "Taken from house/Moved" 
-  
-
-  Status[as.character(df0$PReasonAbsent) == 'Destroyed--Burned by fire' | 
-           as.character(df0$PReasonAbsent) == 'Discarded--Too torn up' | 
-           as.character(df0$PReasonAbsent) == 'Discarded-Not killing mos'] <- 'Attrited'
-  Status[as.character(df0$PReasonAbsent) == 'Other' | 
-           as.character(df0$PReasonAbsent) == 'Other Use'] <- 'Attrited'
-  Status[as.character(df0$PReasonAbsent) == 'Taken from house/Moved' | 
-         as.character(df0$PReasonAbsent) == 'Lost/Stolen' | 
-         as.character(df0$PReasonAbsent) == 'Sold/Given away'] <- 'Removed'
-  # levels(df0$PLocationLLIN)
-  # [1] ""                     "189"                  "Do Not Know"          "Folded Up"           
-  # [5] "Hanging"              "Hanging - Loose"      "Hanging - Tied"       "Inside - Not Hanging"
-  # [9] "Not Folded Up"        "Not Hanging"          "Stored Away" 
-  
-  # Non missing values of PLocationLLIN also indicate that the net is present
-  Status[as.numeric(df0$PLocationLLIN) > 3 & Status=='Attrited'] <- 'Not in use'
-  # If used last night, then Status must be in use
-  Status[df0$PLastNight==1] <- 'Used last night'
-  
-  # Assign PHI3_Field as default measure of holed area (Kilian's Proportional Hole Index).  
-  # Use lab data if these are all that is available (note that scatter indicates acceptable agreement)
-  
-  PHI <- with(df0,ifelse(is.na(PHI3_Field),PHI3_Lab,PHI3_Field))
-  PHI[Status=='Attrited'] <- NA
-  
-  # compute indicator of whether non-use or attrition is reported as due to damage
-  Damage_related <- as.numeric(df0$PReasonAbsent)
-  Damage_related <- with(df0, ifelse(Damage_related > 3 & Damage_related < 7 & Damage_related !=5,'Yes','No'))
-  
-  library(car)
-  # Recode wash frequency as a number
-  WashFreq <- as.numeric(as.character((car::recode(df0$PWashFreq,"''=NA;'1 Per Year'=1;
-'10 Per Year'=10;'12 Per Year'=12;'13-20 Per Year'=17;
-'2 Per Year'=2;'21+ Per Year'=22;'3 Per Year'=3;
-'4 Per Year'=4;'5 Per Year'=5;'6 Per Year'=6;
-'7 Per Year'=7;'8 Per Year'=8;'Never'=0;'Unknown'=NA"))))
-  
-  # Reduce categories for bedding
-  Bedding <- car::recode(df0$PBedding,"''=NA; 'Bamboo'='Other';'Bed'='Mattress/Bed';'Blankets/Sacks/Tarp/Plast'='Mat etc';
-'Brick'='Other';'Frame - Metal'='Frame';'Frame - Wood'='Frame';'Ground'='Other';'Mat'='Mat etc';
-'Mattress'='Mattress/Bed';'Other'='Other';'Sofa'='Other';'Unknown'=NA")
-  
-  #
-  suppressWarnings(Chem<-as.numeric(as.character(df0$mg_per_m2)))
-  df<- with(df0,data.frame(Country=Country,NetCode=PNetCode,Brand=PBrand,Round=PRound,Status=Status,
-                           PHI=PHI,Damage_related=Damage_related,Wash=PWash,WashFreq=WashFreq,
-                           Bedding=Bedding,Reason=PReasonAbsent,Location=PLocationLLIN))
-  return(df)
-}
-
 
 # Add hole status variable to cross sectional data frame
 get_holeStatus = function(df,hc=HoleCutoff) {
@@ -84,96 +12,6 @@ get_holeStatus = function(df,hc=HoleCutoff) {
   df$HoleStatus <-  with(df,ifelse(PHI > hc & Status =='Not in use','Damaged-In use',HoleStatus.i))
   hole_transitions$longData=ifelse(as.numeric(as.factor(hole_transitions$HoleStatus.f)) %in% c(2,3,4,5),0,1)
 return(df)}
-
-
-# Read and merge-in auxiliary data required for linking records longitudinally
-readPMIdataForLongitudinalAnalysis <- function(){
-  df <- read_pooled_llin_data()
-  df2 <- read.csv("netIDresolution.csv")
-  df2 <- df2[,c("Country","Brand","NetCode","NetID")]
-  df3 <- merge(df,df2)
-#  df3$Status[df3$Status=='Removed']<-'Attrited'
-  df3$id <- with(df3,paste0(Country,Brand,NetID))
-  dfw <- reshape(data=df3,idvar="id",
-                 timevar = "Round",
-                 v.names = c("Status","PHI","Damage_related","Wash","WashFreq","Bedding"),
-                 direction="wide")
-  dfw <- dfw[!is.na(dfw$NetID),]
-  # dfw is a data frame with one record per net included in longitudinal studies
-return(dfw)}
-
-# Dataset for analysis of transitions, not considering whether holes are present
-get_transitions <- function(dfw=dfw){
-  # Create long format with records for transitions
-  dummy <- factor(0)
-  length(dummy) <- 0
-  # To avoid coding the follow-up from the last round as attrition, check if Age.f is greater than the maximum
-  maxAges <- function(Country=Country){
-    # make lookup vector with names
-    countries = c("Kenya","Senegal")
-    maxAges = c(48,36)
-    lookup = match(Country, countries)
-  return(maxAges[lookup])} 
-  
-    last <- maxAges(dfw$Country)
-    
-  transitions0 = data.frame(Country=character(0),NetID=character(0),Brand=character(0),Age.f=numeric(0),
-               Status.i=dummy,PHI.i=numeric(0),Status.f=dummy,PHI.f=numeric(0),Damage_related=dummy,Wash=integer(0),WashFreq=numeric(0),Bedding=dummy)
-  if(with(dfw,!exists('Status.48'))) { transitions8 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.48) & last==48, 42, last)  
-    transitions8 <- with(dfw,data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=48,Status.i=Status.42,PHI.i=PHI.42,Status.f=Status.48,PHI.f=PHI.48,
-                                      Damage_related=Damage_related.48,Wash=Wash.48,WashFreq=WashFreq.48,Bedding=Bedding.48))}
-  if(with(dfw,!exists('Status.42'))) { transitions7 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.42) & last==42, 36, last) 
-    transitions7 <- with(dfw,data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=42,Status.i=Status.36,PHI.i=PHI.36,Status.f=Status.42,PHI.f=PHI.42,
-                                      Damage_related=Damage_related.42,Wash=Wash.42,WashFreq=WashFreq.42,Bedding=Bedding.42))}
-  if(with(dfw,!exists('Status.36'))) { transitions6 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.36) & last==36, 30, last) 
-    transitions6 <- with(dfw,data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=36,Status.i=Status.30,PHI.i=PHI.30,Status.f=Status.36,PHI.f=PHI.36,
-                                      Damage_related=Damage_related.36,Wash=Wash.36,WashFreq=WashFreq.36,Bedding=Bedding.36))}
-  if(with(dfw,!exists('Status.30'))) { transitions5 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.30) & last==30, 24, last) 
-    transitions5 <- with(dfw,data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=30,Status.i=Status.24,PHI.i=PHI.24,Status.f=Status.30,PHI.f=PHI.30,
-                                        Damage_related=Damage_related.30,Wash=Wash.30,WashFreq=WashFreq.30,Bedding=Bedding.30))}
-  if(with(dfw,!exists('Status.24'))) { transitions4 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.24) & last==24, 18, last) 
-    transitions4 <- with(dfw,data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=24,Status.i=Status.18,PHI.i=PHI.18,Status.f=Status.24,PHI.f=PHI.24,
-                                        Damage_related=Damage_related.24,Wash=Wash.24,WashFreq=WashFreq.24,Bedding=Bedding.24))}
-  if(with(dfw,!exists('Status.18'))) { transitions3 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.18) & last==18, 12, last) 
-    transitions3 <- with(dfw,data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=18,Status.i=Status.12,PHI.i=PHI.12,Status.f=Status.18,PHI.f=PHI.18,
-                                        Damage_related=Damage_related.18,Wash=Wash.18,WashFreq=WashFreq.18,Bedding=Bedding.18))}
-  if(with(dfw,!exists('Status.12'))) { transitions2 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.12) & last==12, 6, last) 
-    transitions2 <- with(dfw, data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=12,Status.i=Status.6,PHI.i=PHI.6,Status.f=Status.12,PHI.f=PHI.12,
-                                      Damage_related=Damage_related.12,Wash=Wash.12,WashFreq=WashFreq.12,Bedding=Bedding.12))}
-  if(with(dfw,!exists('Status.6'))) { transitions1 <- transitions0 } else { 
-    last <- ifelse(is.na(dfw$Status.6) & last==6, 0, last) 
-    transitions1 <- with(dfw, data.frame(Country=dfw$Country,NetID=dfw$NetID,Brand=dfw$Brand,Age.f=6,Status.i='New',PHI.i=0,Status.f=Status.6,PHI.f=PHI.6,
-                                         Damage_related=Damage_related.6,Wash=Wash.6,WashFreq=WashFreq.6,Bedding=Bedding.6))}
-  
-  transitions <- rbind(transitions1,transitions2,transitions3,transitions4,transitions5,transitions6,transitions7,transitions8)
-  transitions$Status.f <- as.character(transitions$Status.f)
-  transitions$Status.f[is.na(transitions$Status.f)] <- 'Absent'
-  # remove uninformative records obtain a dataset for analysis of effect of initial use on final status
-  if(codeMissing=='DRA' | codeMissing=='DXA') {
-    # Assign as attrited all nets that disappear before the last survey for the country
-    transitions$Status.f <- with(transitions,ifelse(is.na(Status.f) & (Age.f==last+6) & (Age.f < maxAges(Country)), 'Absent', Status.f))    
-  }
-  transitions$ExtendedStatus.f <- factor(transitions$Status.f,levels=extended_categories)
-  transitions$Status.f[transitions$Status.f == 'Removed'] <- ifelse(codeMissing=='DXX' | codeMissing=='DXA', NA, 'Attrited')
-  transitions$Status.f[transitions$Status.f == 'Absent'] <- ifelse(codeMissing=='DRX' | codeMissing=='DXX', NA, 'Attrited')
-  
-  transitions <- transitions[!is.na(transitions$Status.i) & !is.na(transitions$Status.f),]
-  transitions <- transitions[transitions$Status.i != 'Attrited',]
-  transitions <- transitions[transitions$Status.i != 'Removed',]
-  transitions <- transitions[transitions$Status.f != 'Unclear',]
-  transitions$Status.i <- droplevels(transitions$Status.i)
-
-  transitions$Status.i <- factor(transitions$Status.i,levels=categories)
-  transitions$Status.f <- droplevels(as.factor(transitions$Status.f))
-  transitions$Status.f <- factor(transitions$Status.f,levels=categories)
-  return(transitions)}
 
 # Dataset for analysis of transitions, including whether holes are present
 get_hole_transitions <- function(transitions,hc=0){
@@ -204,9 +42,9 @@ fillMissing <- function(stem,dfw=dfw){
   }
 }
 
-# Dataset for analysis of whether initial hole index predicts transitions 
+# Dataset for analysis of whether initial hole index predicts transitions
 get_PHItable <- function(transitions=transitions){
-  analysis1 <- transitions[!is.na(transitions$PHI.i) 
+  analysis1 <- transitions[!is.na(transitions$PHI.i)
                            & transitions$Status.i !='Removed'
                            & transitions$Status.i !='New',]
   analysis1$Status.i <- droplevels(analysis1$Status.i)
@@ -226,7 +64,7 @@ set_graphics_options <- function() {
   library(ggplot2)
   library(grid)
   library(scales)
-  
+
 }
 
 
@@ -234,7 +72,7 @@ set_graphics_options <- function() {
 savePlot <- function(plot,Plotname,vertical_panels=2){
   print(Plotname)
   grid.newpage()
-  png(paste0(pathToSavePlots,Plotname) ,width=18.5,height=18.5*vertical_panels/2,units="cm",res=600)
+  png(Plotname,width=18.5,height=18.5*vertical_panels/2,units="cm",res=600)
   grid.draw(plot)
   dev.off()
 }
@@ -248,10 +86,10 @@ fmt_dcimals <- function(decimals=0){
 flowdiagram <- function(initial,final,categories,Age=NULL,reqpal,plottitle,legendtitle){
   ncat <- length(categories)
   if(is.na(which(final == 'NA-In use' | final=='NA-Not in use')[1])){
-    # Categories of use only 
+    # Categories of use only
     initial <- factor(initial,levels=categories)
     final <- factor(final,levels=categories)
-    # Calculate the transition matrix, survey round dependent if required    
+    # Calculate the transition matrix, survey round dependent if required
     get_tr <- function(tstep){
       if(is.null(Age)){
         trTable <- table(initial,final)
@@ -267,20 +105,20 @@ flowdiagram <- function(initial,final,categories,Age=NULL,reqpal,plottitle,legen
     extended_cats <- c(categories,'NA-In use','NA-Not in use')
     initial <- factor(initial,levels=extended_cats)
     final <- factor(final,levels=extended_cats)
-    #final <- as.factor(ifelse(final == 'NA-In use' & 
+    #final <- as.factor(ifelse(final == 'NA-In use' &
     #                            (initial == 'Damaged-In use' | initial == 'Damaged-Not in use'),'Damaged-In use',final))
     get_tr <- function(tstep){
-      # Use the overall transition matrix if the Markov assumption holds 
+      # Use the overall transition matrix if the Markov assumption holds
       if(is.null(Age)){
 #        tab <- trTable <- table(initial,final)
          tab <- trTable <- tabulate_corrected_categories(initial=initial,final=final,repairs_recoded='none', reweighting=reweighting)
       } else {
          tab <- trTable <- tabulate_corrected_categories(initial=initial[Age==6*tstep],final=final[Age==6*tstep],repairs_recoded='none', reweighting=reweighting)
       }
-      trTable[,'Damaged-In use']<- tab[,'Damaged-In use'] * (1 + tab[,'NA-In use']/(tab[,'Damaged-In use']+tab[,'Undamaged-In use'])) 
-      trTable[,'Undamaged-In use']<- tab[,'Undamaged-In use'] * (1 + tab[,'NA-In use']/(tab[,'Damaged-In use']+tab[,'Undamaged-In use'])) 
-      trTable[,'Damaged-Not in use']<- tab[,'Damaged-Not in use'] * (1 + tab[,'NA-Not in use']/(tab[,'Damaged-Not in use']+tab[,'Undamaged-Not in use'])) 
-      trTable[,'Undamaged-Not in use']<- tab[,'Undamaged-Not in use'] * (1 + tab[,'NA-Not in use']/(tab[,'Damaged-Not in use']+tab[,'Undamaged-Not in use'])) 
+      trTable[,'Damaged-In use']<- tab[,'Damaged-In use'] * (1 + tab[,'NA-In use']/(tab[,'Damaged-In use']+tab[,'Undamaged-In use']))
+      trTable[,'Undamaged-In use']<- tab[,'Undamaged-In use'] * (1 + tab[,'NA-In use']/(tab[,'Damaged-In use']+tab[,'Undamaged-In use']))
+      trTable[,'Damaged-Not in use']<- tab[,'Damaged-Not in use'] * (1 + tab[,'NA-Not in use']/(tab[,'Damaged-Not in use']+tab[,'Undamaged-Not in use']))
+      trTable[,'Undamaged-Not in use']<- tab[,'Undamaged-Not in use'] * (1 + tab[,'NA-Not in use']/(tab[,'Damaged-Not in use']+tab[,'Undamaged-Not in use']))
       trTable1 <- trTable[order(hole_categories),]
       dim <- length(extended_cats)
       tr0 <- matrix(rep(0,dim*dim),nrow=dim,dimnames=list(extended_cats,extended_cats))
@@ -290,9 +128,9 @@ flowdiagram <- function(initial,final,categories,Age=NULL,reqpal,plottitle,legen
       tr[ncat,] <- c(rep(0,ncat-1),1)
     return(tr)
   }}
-  
+
   p <- matrix(nrow=9,ncol=ncat)
-  
+
   # Calculate averages for Markov Process
   p[1,] <- c(1,rep(0,ncat-1))
   for(tstep in 1:8){
@@ -327,10 +165,10 @@ flowdiagram <- function(initial,final,categories,Age=NULL,reqpal,plottitle,legen
       }
     }
   }
-  toPlot <- data.frame(id,month=month,status=as.factor(status),freq)  
-  toPlot$status = factor(toPlot$status,levels=categories) 
+  toPlot <- data.frame(id,month=month,status=as.factor(status),freq)
+  toPlot$status = factor(toPlot$status,levels=categories)
   library(viridis)
-  library(ggplot2)  
+  library(ggplot2)
   library(ggalluvial)
   p1 <- ggplot(toPlot[toPlot$freq!=0,],
          aes(x = month, stratum = status, alluvium = id,
@@ -348,11 +186,11 @@ flowdiagram <- function(initial,final,categories,Age=NULL,reqpal,plottitle,legen
 
 
 tabulate_corrected_categories = function(initial,final,repairs_recoded, reweighting =reweighting){
-  # Summarise input data to provide values for use in model fitting version 
-  
+  # Summarise input data to provide values for use in model fitting version
+
   get_weights_for_hole_transitions <- function(initial=initial,final=final){
     # reweight the data matrix for hole categories so that the proportions in the use categories are retained
-    
+
     collapse_use = function(useVar){
       collapsedVar =  factor(recode_factor(useVar,'New'='New','Used last night'='In use','Not used last night'='Not in use','Not in use'='Not in use',
                                     'Damaged-In use'='In use','Damaged-Not in use'='Not in use','Undamaged-In use'='In use','Undamaged-Not in use'='Not in use',
@@ -369,19 +207,19 @@ tabulate_corrected_categories = function(initial,final,repairs_recoded, reweight
     reweights <- reweightTot[cbind(as.numeric(hole_initialu),as.numeric(hole_finalu))]
     reweights <- reweights * length(reweights)/sum(reweights)
   return(reweights)}
-  
+
   wts = get_weights_for_hole_transitions(initial=initial,final=final)
-  
+
   if (repairs_recoded != 'none'){
     initial<- recode_factor(initial,'New'='New','Undamaged-Not in use'='S1',
                             'Damaged-Not in use'='S2','Undamaged-In use'='S3','Damaged-In use'='S4')
     final=recode_factor(final,'Undamaged-Not in use'='S1',
                         'Damaged-Not in use'='S2','Undamaged-In use'='S3','Damaged-In use'='S4',
                         'Attrited'='S5','NA-In use'='S6','NA-Not in use'='S7')
-    
+
     # if treating  inconsistent holes as present
     if (repairs_recoded == 'intact'){
-      
+
       # Recode final status to holed, where nets appear to have been repaired
       final[initial=='S4' & final=='S3'] <- 'S4'
       final[initial=='S4' & final=='S1'] <- 'S2'
@@ -392,8 +230,8 @@ tabulate_corrected_categories = function(initial,final,repairs_recoded, reweight
       final[initial=='S4' & final=='S7']<-'S2'
       final[initial=='S2' & final=='S6']<-'S4'
       final[initial=='S2' & final=='S7']<-'S2'
-    }  
-    
+    }
+
     # if treating inconsistent holes as absent
     if (repairs_recoded == 'holed'){
       # Recode initial status to intact, where nets appear to have been repaired
@@ -402,16 +240,16 @@ tabulate_corrected_categories = function(initial,final,repairs_recoded, reweight
       initial[initial=='S2' & final=='S3'] <- 'S3'
       initial[initial=='S2' & final=='S1'] <- 'S1'
       # Recode final status to holed if initial status is holed and final integrity not assessed
-      
+
       final[initial=='S4' & final=='S6']<-'S4'
       final[initial=='S4' & final=='S7']<-'S2'
       final[initial=='S2' & final=='S6']<-'S4'
       final[initial=='S2' & final=='S7']<-'S2'
-    } 
+    }
   }
   if(reweighting=='UseWts'){
-    data_table <- round(xtabs(wts ~ initial + final)) 
-  } else { 
+    data_table <- round(xtabs(wts ~ initial + final))
+  } else {
     data_table <- table(initial,final)}
 return (data_table)}
 
@@ -419,31 +257,28 @@ select_records <- function(df){
   if(required_net_type != 'All'){
     df <- df[df$Brand==required_net_type,]
   }
-  if(required_country != 'All'){
-    df <- df[df$Country==required_country,]
-  }
-  return(df)}
+return(df)}
 
 ####################### ANALYSIS OF ODE SOLUTIONS #######################
-# Forward simulation with Forward Euler and plot 5 year status (including counterfactuals) 
+# Forward simulation with Forward Euler and plot 5 year status (including counterfactuals)
 forwardsimulate = function(simoptions=codeMissing,Parameters=testParameters,years=20,tsteps_per_year=1000,
                            plottitle='test.png',requirePlot=TRUE,recycling=FALSE){
   getDifferentials<-function(Parameters){
     qmatrix <- with(Parameters, matrix(data = c(-(u_1+h_1+a_1), 0,  v_3, 0,0,
-                                                h_1,-(u_2+a_2),0, v_4,0,  
+                                                h_1,-(u_2+a_2),0, v_4,0,
                                                 u_1,0,-(v_3+h_3+a_3),0,0,
                                                 0, u_2, h_3, -(v_4+a_4),0,
                                                 a_1, a_2, a_3, a_4,0), nrow = 5, ncol = 5, byrow = FALSE,
-                                       dimnames = list(c('S_1','S_2','S_3','S_4','A=0'),c('S_1','S_2','S_3','S_4','A')))) 
+                                       dimnames = list(c('S_1','S_2','S_3','S_4','A=0'),c('S_1','S_2','S_3','S_4','A'))))
     return(qmatrix)}
-  
+
   # If recycling is modelled then recycled nets are added into categories S_1 and S_2
     recycle <- function(pstatus=pstatus,qmatrix=qmatrix,status=status,tstep=tstep){
       r <- recyclingModel()
       attrited <- as.numeric(status[5,1]-pstatus[5])
       attrited_with_holes <- as.numeric((t(qmatrix*tstep) %*% (pstatus*c(0,1,0,1,0)))[5])
-      # Assume a constant odds ratio 
-      
+      # Assume a constant odds ratio
+
       H <- as.numeric(attrited_with_holes/attrited)
       beta = -r$psi*H - r$psi*r$P3 - 1 + H + r$P3
       alpha = r$psi - 1
@@ -459,19 +294,19 @@ forwardsimulate = function(simoptions=codeMissing,Parameters=testParameters,year
       recycle_list <- list(status=status, recycled_intact=recycled_intact, recycled_with_holes=recycled_with_holes)
     return(recycle_list)
     }
-  
+
     # used for checking the solution of the quadratic
     checkx <- function(){
       cx = H - x
       bx = r$P3 - x
       dx = 1 - H - r$P3 + x
       sum = x + bx + cx + dx
-      psi_check <- x*dx/(bx*cx)  
+      psi_check <- x*dx/(bx*cx)
    return(list(sum,psi_check))}
-    
+
   get_forwardEuler <- function(simoptions,qmatrix,istatus,years,tsteps_per_year,recycling){
     tstep <- 1/tsteps_per_year
-    status <- matrix(NA,nrow=5,ncol=1)  
+    status <- matrix(NA,nrow=5,ncol=1)
     status = c(as.numeric(istatus))
     statMatrix = matrix(NA,nrow=(years*tsteps_per_year+1),ncol=5)
     statMatrix[1,]=status
@@ -488,18 +323,18 @@ forwardsimulate = function(simoptions=codeMissing,Parameters=testParameters,year
           status = recycle_list$status
           sum_attrited_with_holes <- sum_attrited_with_holes - recycle_list$recycled_with_holes
         }
-        statMatrix[time,]=status   
+        statMatrix[time,]=status
       }
     }
     df <- as.data.frame(statMatrix)
-    print(paste0(simoptions, 'attrited_holed: ',sum_attrited_with_holes,' attrited: ',df[nrow(df),5]))   
+    print(paste0(simoptions, 'attrited_holed: ',sum_attrited_with_holes,' attrited: ',df[nrow(df),5]))
     colnames(df)=names(istatus)
     df$Month <- as.numeric(seq(1:nrow(df))/tsteps_per_year*12)
     return(df)
   }
   istatus <- with(Parameters,list(S_1=1-U_N, S_2=0, S_3=U_N, S_4=0, A = 0))
   # Uses input parameters
-  qmatrix <- getDifferentials(Parameters)  
+  qmatrix <- getDifferentials(Parameters)
   estimates <- get_forwardEuler(simoptions=simoptions,qmatrix=qmatrix,istatus,years,tsteps_per_year,recycling)
   # counterfactual1 is no hole acquisition
   # To test the effect of physical robustness uses counterfactual with h_1 =0, h_3 =0
@@ -512,7 +347,7 @@ forwardsimulate = function(simoptions=codeMissing,Parameters=testParameters,year
   # no use counterfactual is commented out
   simoptions3=paste0(simoptions,'_C')
   c2Parameters <- Parameters
-  c2Parameters$U_N = 1 
+  c2Parameters$U_N = 1
   #c2Parameters$u_1 = c2Parameters$u_2 =0
   c2Parameters$v_3 = c2Parameters$v_4 =0
   c2matrix <- getDifferentials(c2Parameters)
@@ -548,7 +383,7 @@ forwardsimulate = function(simoptions=codeMissing,Parameters=testParameters,year
 
 get_propAttrition_in_holed <- function(e=allmodels,p=Parameters,tsteps_per_year=tsteps_per_year){
     e <- e[e$model=='A',]
-    attrition <- e$A - c(0,e$A[1:(nrow(e)-1)]) 
+    attrition <- e$A - c(0,e$A[1:(nrow(e)-1)])
     prop_in_holed <- (p$a_2*e$S_2 +  p$a_4*e$S_4)/(p$a_1*e$S_1 +  p$a_2*e$S_2 + p$a_3*e$S_3 +  p$a_4*e$S_4)
     prop_holed <- e$S_2 + e$S_4
     attrition_in_holed <- attrition*prop_in_holed
@@ -558,7 +393,7 @@ get_propAttrition_in_holed <- function(e=allmodels,p=Parameters,tsteps_per_year=
 
 get_interval_estimates <- function(samples_posterior=samples_posterior,plottitle=plottitle){
   useLastNight <- get_use_last_night()
-  pars <- samples_posterior[sample(nrow(samples_posterior), nsamples_posterior), ] 
+  pars <- samples_posterior[sample(nrow(samples_posterior), nsamples_posterior), ]
   for (i in 1:nsamples_posterior){
     print(i)
     h_1 <- pars$h1[i]
@@ -575,14 +410,15 @@ get_interval_estimates <- function(samples_posterior=samples_posterior,plottitle
     U_N <- 0
     U_H <- useLastNight$U_H
     U_I <- useLastNight$U_I
-    parameters <- list(h_1=h_1 , h_3=h_3, u_1=u_1, u_2=u_2, 
-                       v_3=v_3 , v_4=v_4, a_1=a_1 , a_2=a_2, 
-                       a_3=a_3 , a_4=a_4, P_0=P_0 , U_N=U_N, U_H=U_H , U_I=U_I)
-    stats <- get_summaryStats(simoptions=NULL,i=i, Parameters=parameters,plottitle='null',requirePlot=FALSE)
+    parameters <- cbind(h_1=rep(h_1,3) , h_3=rep(h_3,3) , u_1=rep(u_1,3) , u_2=rep(u_2,3) ,
+                       v_3=rep(v_3,3) , v_4=rep(v_4,3) , a_1=rep(a_1,3) , a_2=rep(a_2,3) ,
+                       a_3=rep(a_3,3) , a_4=rep(a_4,3) , P_0=rep(P_0,3) , U_N=rep(U_N,3) ,
+                       U_H=rep(U_H,3) , U_I=rep(U_I,3))
+    stats <- get_summaryStats(simoptions=NULL,i=i, Parameters=as.list(parameters[1,]),plottitle='null',requirePlot=FALSE)
     if(i==1){
-      df <- as.data.frame(list(parameters,stats))
+      df <- cbind(parameters,stats)
     } else {
-      statsdf <- as.data.frame(list(parameters,stats))
+      statsdf <- cbind(parameters,stats)
       df <- rbind(df,statsdf)
     }
   }
@@ -603,77 +439,82 @@ get_interval_estimates <- function(samples_posterior=samples_posterior,plottitle
       interval_estimates <- rbind(interval_estimates,df1)
     }
   }
-return(interval_estimates)}  
-  
-# calculate summary statistics and plots from estimates of the ODE parameters 
+return(interval_estimates)}
+
+# calculate summary statistics and plots from estimates of the ODE parameters
 get_summaryStats <- function(simoptions,i, Parameters=Parameters,years=20,tsteps_per_year=1000,plottitle=NULL,requirePlot=FALSE){
   simSets <- forwardsimulate(simoptions=simoptions,Parameters=Parameters,years=20,tsteps_per_year=1000,plottitle=plottitle,requirePlot=requirePlot,recycling=FALSE)
   models <- c('A','B','C')
   # A: observed; B: no holes; C: 100% use
-  propLifetimeHoled <- propNotAttrited <- propInUse <- propInUseLastNight <- propHoled <- rep(NA,3)
-  medianLife <- meanLife <- propLifetimeInUse <-propLifetimeInUseLastNight <- rep(NA,3)
-  
+  propLifetimeHoled <- propNotAttrited <- propInUse <- propInUseLastNight <- propHoled <- medianLife <-
+  meanLife <- propLifetimeInUse <-propLifetimeInUseLastNight <- summaryByModel <- reductionInLifetimeDueToHoles <-
+  propLossLifetimeDueToHoles <- propLackOfUseDueToHoles <- propLackOfUseLastNightDueToHoles <- RelativeRateHolesByUse <-
+  propAttritionInHoled <- medianLifeHoled <- totalNightsInUse <- totalNightsInUseCounterfactual <- propNightsLost <-
+  propImpactLost <- RelativeRateUseByHoles <- rep(NA,3)
+
   for (m in 1:3){
-    subSet <- simSets[simSets$model==models[m],] 
+    subSet <- simSets[simSets$model==models[m],]
     #  Average life of LLIN (years)
     meanLife[m] <- sum(1-subSet$A)*subSet$Month[1]/12
     medianLife[m] <- subSet[subSet$A > 0.5,]$Month[1]/12
-    # Proportion of simulation period for which net is not attrited  
+    # Proportion of simulation period for which net is not attrited
     propNotAttrited[m] <- sum(1-subSet$A)/length(subSet$A)
-    # Proportion of simulation period for which net is in use  
+    # Proportion of simulation period for which net is in use
     propInUse[m] <- with(subSet, (sum(S_3) + sum(S_4))/length(A))
-    # Proportion of simulation period for which net is in use lastnight 
-    propInUseLastNight[m] <- with(subSet, (sum(S_3*Parameters$U_I) + sum(S_4*Parameters$U_H))/length(A))  
-    # Proportion of simulation period for which net is holed  
+    # Proportion of simulation period for which net is in use lastnight
+    propInUseLastNight[m] <- with(subSet, (sum(S_3*Parameters$U_I) + sum(S_4*Parameters$U_H))/length(A))
+    # Proportion of simulation period for which net is holed
     propHoled[m] <- with(subSet, (sum(S_2) + sum(S_4))/length(A))
     # Proportion of lifetime of LLIN for which it is in 'use'
     propLifetimeInUse[m] <- with(subSet,(sum(S_3) + sum(S_4))/sum(1-A))
     # Proportion of lifetime of LLIN for which it is holed
-    propLifetimeHoled[m] <- with(subSet,(sum(S_2) + sum(S_4))/sum(1-A))  
-    # Proportion of lifetime of LLIN for which was in use last night i.e. indeed used  
+    propLifetimeHoled[m] <- with(subSet,(sum(S_2) + sum(S_4))/sum(1-A))
+    # Proportion of lifetime of LLIN for which was in use last night i.e. indeed used
     propLifetimeInUseLastNight[m] <- with(subSet,(sum(S_3*Parameters$U_I) + sum(S_4*Parameters$U_H))/sum(1-A))
   }
   print(paste('Mean lifetimes',meanLife[1],meanLife[2],meanLife[3]))
-  # Reduction in net lifetime attributable to holes (years) 
-  reductionInLifetimeDueToHoles <- medianLife[2] - medianLife[1]
-  propLossLifetimeDueToHoles <- 1 - propNotAttrited[1]/propNotAttrited[2] 
-  # Proportion of lack of use attributable to holes (comparison with counterfactual)
-  propLackOfUseDueToHoles <- 1 - propInUse[1]/propInUse[2]
-  propLackOfUseLastNightDueToHoles <- 1 - propInUseLastNight[1]/propInUseLastNight[2]
-  RelativeRateHolesByUse <- Parameters$h_3/Parameters$h_1
-  #Proportion of attrition in holed nets and lifetime of holed nets
-  propAttrition_in_holed <- get_propAttrition_in_holed(e=simSets,p=Parameters,tsteps_per_year=tsteps_per_year)
-  propAttritionInHoled <- propAttrition_in_holed$pAttrition_in_holed
-  medianLifeHoled <- propAttrition_in_holed$lifetime_holed
-  totalNightsInUse <- 365*medianLife[1]*propLifetimeInUseLastNight[1]
-  totalNightsInUseCounterfactual <- 365*medianLife[2]*propLifetimeInUseLastNight[2]
-  propNightsLost <- 1-  totalNightsInUse/totalNightsInUseCounterfactual
   # Use P_V = 0.08 from Briet et al 2020
   P_V =0.08
-  propImpactLost <- 1 - (1-P_V )*(1- propNightsLost)
-  RelativeRateUseByHoles <- Parameters$u_2/Parameters$u_1
-
-  summaryByModel <- data.frame(models,propLifetimeHoled,propNotAttrited,propInUse,propInUseLastNight, 
+  # The following quantities are not model-specific and are repeated for each model (to simplify the code)
+  for (m in 1:3){
+    # Reduction in net lifetime attributable to holes (years)
+    reductionInLifetimeDueToHoles[m] <- medianLife[2] - medianLife[1]
+    propLossLifetimeDueToHoles[m] <- 1 - propNotAttrited[1]/propNotAttrited[2]
+    # Proportion of lack of use attributable to holes (comparison with counterfactual)
+    propLackOfUseDueToHoles[m] <- 1 - propInUse[1]/propInUse[2]
+    propLackOfUseLastNightDueToHoles[m] <- 1 - propInUseLastNight[1]/propInUseLastNight[2]
+    RelativeRateHolesByUse[m] <- Parameters$h_3/Parameters$h_1
+    #Proportion of attrition in holed nets and lifetime of holed nets
+    propAttrition_in_holed <- get_propAttrition_in_holed(e=simSets,p=Parameters,tsteps_per_year=tsteps_per_year)
+    propAttritionInHoled[m] <- propAttrition_in_holed$pAttrition_in_holed
+    medianLifeHoled[m] <- propAttrition_in_holed$lifetime_holed
+    totalNightsInUse[m] <- 365*medianLife[1]*propLifetimeInUseLastNight[1]
+    totalNightsInUseCounterfactual[m] <- 365*medianLife[2]*propLifetimeInUseLastNight[2]
+    propNightsLost[m] <- 1-  totalNightsInUse[m]/totalNightsInUseCounterfactual[m]
+    propImpactLost[m] <- 1 - (1-P_V )*(1- propNightsLost[m])
+    RelativeRateUseByHoles[m] <- Parameters$u_2/Parameters$u_1
+  }
+  summaryByModel <- data.frame(models,propLifetimeHoled,propNotAttrited,propInUse,propInUseLastNight,
                                propHoled,medianLife,propLifetimeInUse,propLifetimeInUseLastNight,
                                propAttritionInHoled,medianLifeHoled)
-  summaryStats <- list(summaryByModel=summaryByModel,
-                       reductionInLifetimeDueToHoles=reductionInLifetimeDueToHoles,
-                       propLossLifetimeDueToHoles=propLossLifetimeDueToHoles,
-                       propLackOfUseDueToHoles=propLackOfUseDueToHoles,
-                       propLackOfUseLastNightDueToHoles=propLackOfUseLastNightDueToHoles,
-                       RelativeRateHolesByUse=RelativeRateHolesByUse,
-                       propAttritionInHoled=propAttritionInHoled,
-                       medianLifeHoled=medianLifeHoled,
-                       totalNightsInUse=totalNightsInUse,
-                       totalNightsInUseCounterfactual=totalNightsInUseCounterfactual,
+  summaryStats <- data.frame(summaryByModel,
+                       reductionInLifetimeDueToHoles,
+                       propLossLifetimeDueToHoles,
+                       propLackOfUseDueToHoles,
+                       propLackOfUseLastNightDueToHoles,
+                       RelativeRateHolesByUse,
+                       propAttritionInHoled,
+                       medianLifeHoled,
+                       totalNightsInUse,
+                       totalNightsInUseCounterfactual,
                        propNightsLost=propNightsLost,
                        propImpactLost=propImpactLost,
-                       RelativeRateUseByHoles=RelativeRateUseByHoles)
+                       RelativeRateUseByHoles)
 return(summaryStats)}
 
 # calculate use last night in the overall dataset as a proportion of all used nets, by hole status
 get_use_last_night <- function(){
-  df <- read_pooled_llin_data()
+  df <- survey_data
   tab <- with(df[!is.na(df$PHI),],table(Status,ifelse(PHI>0,'holed','intact')))
   U_H <- tab[2,1]/(tab[2,1]+tab[3,1])
   U_I <- tab[2,2]/(tab[2,2]+tab[3,2])
@@ -697,8 +538,8 @@ get_parameters = function(samples_posterior){
   U_N <- 0
   U_H <- pln$U_H
   U_I <- pln$U_I
-  parameters <- list(h_1=h_1 , h_3=h_3, u_1=u_1, u_2=u_2, 
-                     v_3=v_3 , v_4=v_4, a_1=a_1 , a_2=a_2, 
+  parameters <- list(h_1=h_1 , h_3=h_3, u_1=u_1, u_2=u_2,
+                     v_3=v_3 , v_4=v_4, a_1=a_1 , a_2=a_2,
                      a_3=a_3 , a_4=a_4, P_0=P_0 , U_N=U_N, U_H=U_H , U_I=U_I)
   return(parameters)}
 
@@ -713,86 +554,158 @@ get_parameters = function(samples_posterior){
 # a_2	Attrition of holed, unused nets
 # a_3	Attrition of intact, used nets
 # a_4	Attrition of holed, used nets
-# P_0	Proportion of nets at follow-up for which physical integrity was evaluated 
+# P_0	Proportion of nets at follow-up for which physical integrity was evaluated
 # U_N	Probability that a new net is taken into use immediately on receipt
 # U_H	Probability that a holed net was used on night before survey
 # U_I	Probability that an intact net was used on night before survey
 
-# Overall workflow for ODE models.
-processODE <- function(required_net_type,required_country){
-
-  # if the interval estimates are not estimated then the function returns NULL
-  interval_estimates = NULL
-  if (requireDataDescription) {
-    if(nrow(dfw)>0 & required_net_type=='All'){
-    # get table for analysis of whether initial hole index predicts transitions
-    PHItable <- get_PHItable(transitions=transitions)
-    
-    # Flow diagram for observed transition probabilities time independent probabilities  
+flowdiagrams = function() {
+    # Flow diagram for observed transition probabilities time independent probabilities
     flowdiagram(initial=transitions$Status.i,final=transitions$Status.f,
                 categories=categories,reqpal = modified,
                 plottitle=paste0('FlowConstantUseCategories',required_options(),'.png'),
                 legendtitle='Use categories')
-    # Flow diagram for observed transition probabilities time dependent probabilities  
+    # Flow diagram for observed transition probabilities time dependent probabilities
     flowdiagram(initial=transitions$Status.i,final=transitions$Status.f,categories=categories,Age=transitions$Age.f,
                 reqpal = modified,
                 plottitle=paste0('FlowAgeDependentUseCategories',required_options(),'.png'),
                 legendtitle='Use categories')
-    # Flow diagram for observed transition probabilities (including repairs) assuming Markov process 
+    # Flow diagram for observed transition probabilities (including repairs) assuming Markov process
     flowdiagram(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
                 categories=hole_categories,reqpal=modifiedinferno,
                 plottitle=paste0('FlowConstantHoleCategories',required_options(),'.png'),
                 legendtitle='Use/damage categories')
-    # Flow diagram for observed transition probabilities time dependent probabilities 
+    # Flow diagram for observed transition probabilities time dependent probabilities
     flowdiagram(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
                 categories=hole_categories,Age=hole_transitions$Age.f,reqpal = modifiedinferno,
                 plottitle=paste0('FlowAgeDependentHoleCategories',required_options(),'.png'),
                 legendtitle='Use/damage categories')
-    # Save dataset for fitting of ODE model
-    filename <- paste0('hole_transitions',required_options(),'.csv')
-    write.csv(hole_transitions,file=filename)
-    } 
-  }  
-  if (requireODEFitting){
-    if (nrow(dfw)>0) {
-      source('../MarkovmodelStan/netdurability_fixqp.R')
-      if (repairs_recoded == 'intact'){
-        data_matrix <- matrix(tabulate_corrected_categories(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
-          repairs_recoded = 'intact', reweighting =reweighting),nrow=5,ncol=7)
-        print(paste0('*i: ',required_country,' ',required_net_type))
-        samples_posterior <- netdurability_run_fixqp(counts=data_matrix)
-        setwd('./PMI_Markov')
-        write.csv(samples_posterior,file=paste0('samples_posterior',required_options(),'.csv'))
-      }
-      if (repairs_recoded == 'holed'){
-        data_matrix <- matrix(tabulate_corrected_categories(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
-          repairs_recoded = 'holed', reweighting =reweighting),nrow=5,ncol=7)
-        print(paste0('*h: ',required_country,' ',required_net_type))
-        samples_posterior <- netdurability_run_fixqp(counts=data_matrix)
-        setwd('./PMI_Markov')
-        write.csv(samples_posterior,file=paste0('samples_posterior',required_options(),'.csv'))
-      }
+}
+
+# Function to estimate parameters of ODE model for net durability using rstan
+# Written by Adrian Denz Feb 2020.  Converted to a function by Tom Smith to allow external calls
+# specifying the data matrix as an argument and returning samples from the posterior
+netdurability_run_fixqp <- function(counts=NULL,
+                                    chains = 4,         # number of Markov chains
+                                    warmup = 20000,     # number of warmup iterations per chain
+                                    iter = 1120000,     # total number of iterations per chain
+                                    thin =1000){        # interval used for thinning outputs (to reduce size of output file)
+  library("rstan")
+  options(mc.cores = parallel::detectCores())
+  rstan_options(auto_write = FALSE)
+  Sys.setenv(LOCAL_CPPFLAGS = '-march=corei7 -mtune=corei7')
+
+  if(is.null(counts)){
+    # load data
+    # produce matrix of counts
+    counts <- matrix(data=0,nrow=5,ncol=7)
+
+    # load csv file
+    data_R <- read.csv(file="hole_transitions.csv", header=TRUE, sep=",")
+
+    # initial states
+    # notation: 1 no-use&intact, 2 no-use&holes, 3 use&intact, 4 use&holed, 5 discarded, 6 no-use&(intact|holed), 7 use&(intact|holed)
+    data_R$S.i[data_R$Status.i=='New' & data_R$PHI.i == 0 ] <- 0 # state N
+    data_R$S.i[data_R$Status.i=='NotUse' & data_R$PHI.i == 0 ] <- 1 # state S1
+    data_R$S.i[data_R$Status.i=='NotUse' & data_R$PHI.i > 0 ] <- 2 # state S2
+    data_R$S.i[(data_R$Status.i=='LastNight' | data_R$Status.i=='NotLastNight') & data_R$PHI.i == 0 ] <- 3 # state S3
+    data_R$S.i[(data_R$Status.i=='LastNight' | data_R$Status.i=='NotLastNight') & data_R$PHI.i > 0 ] <- 4 # state S4
+
+    # final states,
+    data_R$S.f[data_R$Status.f=='NotUse' & data_R$PHI.f == 0 ] <- 1 # state S1
+    data_R$S.f[data_R$Status.f=='NotUse' & data_R$PHI.f > 0 ] <- 2  # state S2
+    data_R$S.f[(data_R$Status.f=='LastNight' | data_R$Status.f=='NotLastNight') & data_R$PHI.f == 0 ] <- 3  # state S3
+    data_R$S.f[(data_R$Status.f=='LastNight' | data_R$Status.f=='NotLastNight') & data_R$PHI.f > 0 ] <- 4  # state S$
+    # data_R$S.f[(data_R$Status.f=='LastNight' | data_R$Status.f=='NotLastNight') & (data_R$PHI.f > 0 | data_R$PHI.i > 0)] <- 4
+    data_R$S.f[data_R$Status.f=='Attrited'] <- 5  # state A
+    data_R$S.f[data_R$Status.f=='NotUse' & is.na(data_R$PHI.f)] <- 6  # state 'S1ORS2'
+    data_R$S.f[(data_R$Status.f=='LastNight' | data_R$Status.f=='NotLastNight') & is.na(data_R$PHI.f)] <- 7  # state 'S3ORS4'
+
+    # check that no NAs left, should give 0
+    sum(is.na(data_R$S.i))
+    sum(is.na(data_R$S.f))
+
+    # produce matrix of counts
+    counts <- matrix(data=0,nrow=5,ncol=7)
+
+    for (ii in c(1:nrow(data_R))){
+      counts[data_R$S.i[ii]+1,data_R$S.f[ii]] <- counts[data_R$S.i[ii]+1,data_R$S.f[ii]] + 1
     }
+
+  } else {
+    counts <- matrix(as.integer(counts),nrow=5,ncol=7)
   }
-  if(requireODEpostprocessing){
-    plottitle <-   paste0('Predictions_',required_options(),'.png')
-    #Use as reference the analysis treating repaired nets as holed
-    filename=paste0('samples_posterior',required_options(),'.csv')
-    if(file.exists(filename)){
-      samples_posterior <- read.csv(filename)
-      pars <- get_parameters(samples_posterior)
-      summaryStats <- get_summaryStats(simoptions=NULL,i=NULL,Parameters=pars,years=10,tsteps_per_year=1000,plottitle=plottitle,requirePlot=TRUE)
-    }
-    if(requireCalculationIntervalEstimates){
-      interval_estimates <- get_interval_estimates(samples_posterior=samples_posterior,plottitle=plottitle)
-      interval_estimates$net_type <- required_net_type
-      interval_estimates$country <- required_country
-      interval_estimates$repair_recoding = repairs_recoded
-    }
+
+  ###################
+  #models
+  netdurability_fixqp <- "netdurability_fixqp.stan"
+  ###################
+
+  #posterior
+  # data
+  data_stan <- list(
+    # fixed parameters should be assigned here
+    q = 0,
+    p0 = 0.602,
+    counts = counts,
+    t = 0.5,
+    priorsigma = 2
+  )
+
+  # fit
+  fit_posterior<-stan(
+    file = netdurability_fixqp,  # Stan program
+    data = data_stan, # named list of data
+    chains = chains,  # number of Markov chains
+    warmup = warmup,  # number of warmup iterations per chain
+    iter = iter,      # total number of iterations per chain
+    thin = thin,      # interval used for thinning outputs (to reduce size of output file)
+    refresh = 1000,   # progress shown
+    control = list(adapt_delta = 0.8)
+  )
+  rm(list="data_stan")
+
+  pairs(fit_posterior, pars=c('a1', 'a2','a3','a4','h1','h3','u1','u2','v3','v4'))
+  samples_posterior <- as.data.frame(extract(fit_posterior,
+                                             pars=c('a1', 'a2','a3','a4','h1','h3','u1','u2','v3','v4')))
+  #samples_rat <- as.data.frame(extract(fit_posterior, pars=c('rat1', 'rat2')))
+  return(samples_posterior)
+}
+
+# Fitting of STAN model
+ODEFitting = function(iter=1120000) {
+  if (repairs_recoded == 'intact'){
+    data_matrix <- matrix(tabulate_corrected_categories(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
+      repairs_recoded = 'intact', reweighting =reweighting),nrow=5,ncol=7)
+    print(paste0('*i: ',required_net_type))
+    samples_posterior <- netdurability_run_fixqp(counts=data_matrix)
+    write.csv(samples_posterior,file=paste0('samples_posterior',required_options(),'.csv'))
   }
+  if (repairs_recoded == 'holed'){
+    data_matrix <- matrix(tabulate_corrected_categories(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
+      repairs_recoded = 'holed', reweighting =reweighting),nrow=5,ncol=7)
+    print(paste0('*h: ',required_net_type))
+    samples_posterior <- netdurability_run_fixqp(counts=data_matrix)
+    write.csv(samples_posterior,file=paste0('samples_posterior',required_options(),'.csv'))
+  }
+return()
+}
+
+ODEinterval_estimates = function(){
+  plottitle <-   paste0('Predictions_',required_options(),'.png')
+  #Use as reference the analysis treating repaired nets as holed
+  filename=paste0('samples_posterior',required_options(),'.csv')
+  if(file.exists(filename)){
+    samples_posterior <- read.csv(filename)
+    pars <- get_parameters(samples_posterior)
+    summaryStats <- get_summaryStats(simoptions=NULL,i=NULL,Parameters=pars,years=10,tsteps_per_year=1000,plottitle=plottitle,requirePlot=TRUE)
+  }
+  interval_estimates <- get_interval_estimates(samples_posterior=samples_posterior,plottitle=plottitle)
+  interval_estimates$net_type <- required_net_type
+  interval_estimates$repair_recoding = repairs_recoded
   if(!is.null(interval_estimates)){
     write.csv(interval_estimates,file=paste0('interval_estimates',required_options(),'.csv'))
-  } else { 
+  } else {
     interval_estimates <- read.csv(file=paste0('interval_estimates',required_options(),'.csv'))
     interval_estimates$X = NULL
   }
@@ -802,85 +715,9 @@ processODE <- function(required_net_type,required_country){
   return(interval_estimates)
 }
 
-# To plot country comparisons of ODE outputs  
-plotComparisons <- function(all_interval_estimates,classifier,filterval){
-  if(classifier=='net_type'){
-    filtervar <- all_interval_estimates$country
-    plottitle = paste0('Comparison_of_net_types_',filterval,codeMissing,repairs_recoded,reweighting,'.png')
-    all_interval_estimates$category <- all_interval_estimates$net_type
-    legendTitle = 'Net type'
-  } else { 
-    filtervar <- all_interval_estimates$net_type
-    plottitle = paste0('Comparison_of_countries_',filterval,codeMissing,repairs_recoded,reweighting,'.png')
-    all_interval_estimates$category <- all_interval_estimates$country
-    legendTitle = 'Country'
-  }
 
-  plotDataL <- with(all_interval_estimates,all_interval_estimates[filtervar==filterval & model == 'A' & repair_recoding == repairs_recoded &
-                                                                    !is.na(match(Variable,c("summaryByModel.medianLife","reductionInLifetimeDueToHoles"))),])
-  plotDataM <- with(all_interval_estimates,all_interval_estimates[filtervar==filterval & model == 'A' & repair_recoding == repairs_recoded &
-                                                                    !is.na(match(Variable,c("h_1","h_3","u_1","u_2","v_3","v_4","a_1","a_2","a_3","a_4"))),])
-  plotDataP <- with(all_interval_estimates,all_interval_estimates[filtervar==filterval & model == 'A' & repair_recoding == repairs_recoded &
-                                                                    !is.na(match(Variable,c("P_0",
-                                                                                            "summaryByModel.propLifetimeInUse",
-                                                                                            "summaryByModel.propLifetimeInUseLastNight",
-                                                                                            "propLackOfUseDueToHoles",
-                                                                                            "propLackOfUseLastNightDueToHoles",
-                                                                                            "propLossLifetimeDueToHoles"))),])
-  plotDataL$Variable <- factor(plotDataL$Variable,
-                               levels = c("summaryByModel.medianLife","reductionInLifetimeDueToHoles"))
-  plotDataM$Variable <- factor(plotDataM$Variable,
-                               levels = c("h_1","h_3","u_1","u_2","v_3","v_4","a_1","a_2","a_3","a_4"))
-  plotDataP$Variable <- factor(plotDataP$Variable,
-                               levels = c(
-                                 "P_0",
-                                 "summaryByModel.propLifetimeInUse",
-                                 "summaryByModel.propLifetimeInUseLastNight",
-                                 "propLackOfUseDueToHoles",
-                                 "propLackOfUseLastNightDueToHoles",
-                                 "propLossLifetimeDueToHoles"))
- 
-  
-  
-  library(cowplot)
-  #size - (default: 0.5) thickness of the lines
-  #linetype - (default: 1=solid) the type of the lines
-  #colour - (default: "black") the color of the lines
-  #width - (default: 0.9) width of the whiskers
-  #alpha - (default: 1=opaque) the transparency of the lines 
-  p3 <- ggplot(parse = TRUE)  + theme_bw() + scale_y_continuous(name = 'Duration (years)')+ 
-    geom_errorbar(data=plotDataL[plotDataL$category=='All',], aes(x = Variable, ymax=as.numeric(X97.5.),ymin=as.numeric(X2.5.)),size=2,width=0,colour='grey',alpha=0.8) + 
-    geom_point(data=plotDataL, aes(x = Variable, colour = category,
-                                   y = as.numeric(X50.)), show.legend=TRUE) + 
-    scale_colour_discrete(name=legendTitle) +
-    geom_point(data=plotDataL[plotDataL$category=='All',], aes(x = Variable, y = as.numeric(X50.)),colour='black',size=2, shape=15) + 
-    scale_x_discrete(name=element_blank(), labels= c("Median Lifetime (years)","Reduction in Lifetime"))+
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5)
-    )
-  p1 <- ggplot(parse = TRUE) + theme_bw() + scale_y_log10(name = 'Rate (per year)') +
-    geom_errorbar(data=plotDataM[plotDataM$category=='All',], aes(x = Variable, ymax=as.numeric(X97.5.),ymin=as.numeric(X2.5.)),size=2,width=0,colour='grey',alpha=0.8) + 
-    geom_point(data=plotDataM, aes(x = Variable, colour = category,
-                                   y = as.numeric(X50.)), show.legend=FALSE) + 
-    geom_point(data=plotDataM[plotDataM$category=='All',], aes(x = Variable, y = as.numeric(X50.)),colour='black',size=2, shape=15) + 
-    scale_x_discrete(name=element_blank(),labels= c(expression(h[1]),expression(h[3]),
-                                                    expression(u[1]),expression(u[2]),expression(v[3]),expression(v[4]),expression(a[1]),
-                                                    expression(a[2]),expression(a[3]),expression(a[4])))
-  p2 <- ggplot(parse = TRUE)  + theme_bw() + scale_y_continuous(name = 'Proportion',limits = c(0, 1)) +
-    geom_errorbar(data=plotDataP[plotDataP$category=='All',], aes(x = Variable, ymax=as.numeric(X97.5.),ymin=as.numeric(X2.5.)),size=2,width=0,colour='grey',alpha=0.8) + 
-    geom_point(data=plotDataP, aes(x = Variable, colour = category,
-                                   y = as.numeric(X50.)), show.legend=FALSE) + 
-    geom_point(data=plotDataP[plotDataP$category=='All',], aes(x = Variable, y = as.numeric(X50.)),colour='black',size=2, shape=15) + 
-    scale_x_discrete(name=element_blank(),labels= c(expression(paste(P[0] )),
-                                                    expression("Lifetime in Use"^{"1"}),expression("Lifetime in Use"^{"2"}),
-                                                    expression("Non-Use due to holes"^{"1"}),expression("Non-Use due to holes"^{"2"}),"Loss in Lifetime due to holes")) +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.5)) 
-  p4 <- plot_grid(p1, p2, p3, labels = c('A', 'B', 'C'), label_size = 12,ncol=3)
-  savePlot(p4,Plotname=plottitle,vertical_panels=1)
-}
-
-plotPHIscatter = function(required_country='Kenya'){
-  dfw <- select_records(DataWide)
-  transitions <- get_transitions(dfw=dfw)
+plotPHIscatter = function(){
+  transitions <- select_records(transitions)
   hole_transitions <- get_hole_transitions(transitions)
   ppHI = ggplot(data=hole_transitions, aes(x=log(PHI.i+1),y=log(PHI.f+1)))+  theme_bw()+
     theme(text = element_text(size = 20)) +
@@ -904,15 +741,15 @@ recyclingModel <- function(P1 = 0.927891982,
 # P1 Proportion of destroyed nets that were holed before destruction
 
 P1 = 0.771008356683577/0.782814658444883
-  
+
 # From DRX model:
 # Proportion of destroyed and removed nets that were holed before destruction
 
 P2 = 0.90187444883464/0.997120476949762
-  
+
 # From questionnaire responses, proportion removed among removed and destroyed nets
 
-P3 = 5687/(1750+5687) 
+P3 = 5687/(1750+5687)
 
 # Define P4 as proportion of removed nets that were holed before destruction:
 # P2 = P1(1-P3) + P4P3
@@ -943,23 +780,23 @@ returnList = list(psi=psi,P1=P1,P2=P2,P3=P3,P4=P4,P5=P5,P6=P6)
 return(returnList)}
 
 RecyclingAnalysis <- function(){
-  filename=paste0('samples_posteriorAllKenyaDXAholedUseWts.csv') 
+  filename=paste0('samples_posteriorAllDXAholedUseWts.csv')
   # Recycling is plotted with parameter set DXA
   samples_posterior <- read.csv(filename)
   pars <- get_parameters(samples_posterior)
-  modelRRR <- forwardsimulate(simoptions='RRR',Parameters=pars,years=30,tsteps_per_year=1000,plottitle='Predictions_AllkenyaRRRholedUseWts.png',requirePlot=TRUE,recycling=TRUE)
+  modelRRR <- forwardsimulate(simoptions='RRR',Parameters=pars,years=30,tsteps_per_year=1000,plottitle='Predictions_AllRRRholedUseWts.png',requirePlot=TRUE,recycling=TRUE)
   modelRRR <- modelRRR[modelRRR$model=='A',]
   modelRRR$model <- 'A1R'
-  listA1 = get_simulationResults(filename='samples_posteriorAllKenyaDXAholedUseWts.csv',modelTitle='A1')
-  listA2 = get_simulationResults(filename='samples_posteriorAllKenyaDXXholedUseWts.csv',modelTitle='A2')
-  listA3 = get_simulationResults(filename='samples_posteriorAllKenyaDRXholedUseWts.csv',modelTitle='A3')
-  listA4 = get_simulationResults(filename='samples_posteriorAllKenyaDRAholedUseWts.csv',modelTitle='A4')
+  listA1 = get_simulationResults(filename='samples_posteriorAllDXAholedUseWts.csv',modelTitle='A1')
+  listA2 = get_simulationResults(filename='samples_posteriorAllDXXholedUseWts.csv',modelTitle='A2')
+  listA3 = get_simulationResults(filename='samples_posteriorAllDRXholedUseWts.csv',modelTitle='A3')
+  listA4 = get_simulationResults(filename='samples_posteriorAllDRAholedUseWts.csv',modelTitle='A4')
   concatenated_estimates=rbind(listA1$interval_estimates,listA2$interval_estimates,listA3$interval_estimates,listA4$interval_estimates)
   tabulate_interval_estimates(cumulated_interval_estimates=concatenated_estimates,outfile='EstimatesFromRecyclingAnalysis.csv')
 
   fourModelsToPlot <- rbind(listA2$modeldf,listA3$modeldf,listA4$modeldf,modelRRR)
   pdata <- melt(fourModelsToPlot,id=c("model","Month"))
-  plottitle <- 'ForwardSimulationWithRecyclingKenya.png'
+  plottitle <- 'ForwardSimulationWithRecycling.png'
   names(pdata) = c("model",'Month','Category','Prop')
   levels(pdata$Category)= hole_categories[2:6]
   reqpal=modifiedinferno[2:6]
@@ -975,18 +812,18 @@ RecyclingAnalysis <- function(){
       theme_bw()
     savePlot(p1,plottitle,vertical_panels=1.2)
  return(fourModelsToPlot)}
-  
+
 # Compare estimates from different definitions of damage
 SensitivityAnalysis <- function(){
-  listA1 = get_simulationResults(filename=paste0('samples_posteriorAllKenyaDXAholedUseWts.csv'),modelTitle='A1') 
-  listA1_I = get_simulationResults(filename='samples_posteriorAllKenyaDXAintactUseWts.csv',modelTitle='A1_I') 
-  listA1_0 = get_simulationResults(filename='samples_posteriorAllKenyaDXAholedUseWts0.csv',modelTitle='A1_0')
+  listA1 = get_simulationResults(filename=paste0('samples_posteriorAllDXAholedUseWts.csv'),modelTitle='A1')
+  listA1_I = get_simulationResults(filename='samples_posteriorAllDXAintactUseWts.csv',modelTitle='A1_I')
+  listA1_0 = get_simulationResults(filename='samples_posteriorAllDXAholedUseWts0.csv',modelTitle='A1_0')
   concatenated_estimates=rbind(listA1$interval_estimates,listA1_I$interval_estimates,listA1_0$interval_estimates)
   tabulate_interval_estimates(cumulated_interval_estimates=concatenated_estimates,outfile='EstimatesFromSensitivityAnalysis.csv')
-  
+
   threeModelsToPlot <- rbind(listA1$modeldf,listA1_I$modeldf,listA1_0$modeldf)
   pdata <- melt(threeModelsToPlot,id=c("model","Month"))
-  plottitle <- 'ForwardSimulationSensitivityKenya.png'
+  plottitle <- 'ForwardSimulationSensitivity.png'
   names(pdata) = c("model",'Month','Category','Prop')
   levels(pdata$Category)= hole_categories[2:6]
   reqpal=modifiedinferno[2:6]
@@ -1033,4 +870,4 @@ tabulate_interval_estimates = function(cumulated_interval_estimates,outfile){
 }
 
 
-required_options = function() {return (paste0(required_net_type,required_country,codeMissing,repairs_recoded,reweighting))}
+required_options = function() {return (paste0(required_net_type,codeMissing,repairs_recoded,reweighting))}
