@@ -1,4 +1,4 @@
-# Functions called from by PMI_Markov.R
+# Functions called for net durability analysis
 # Code assembled by Tom Smith for cohort analysis of LLIN durability
 # February 2020 - November 2020
 
@@ -652,9 +652,11 @@ netdurability_run_fixqp <- function(counts=NULL,
     priorsigma = 2
   )
 
+  pars = pars=c('a1', 'a2','a3','a4','h1','h3','u1','u2','v3','v4')
   # fit
   fit_posterior<-stan(
     file = netdurability_fixqp,  # Stan program
+    pars = pars,
     data = data_stan, # named list of data
     chains = chains,  # number of Markov chains
     warmup = warmup,  # number of warmup iterations per chain
@@ -665,30 +667,39 @@ netdurability_run_fixqp <- function(counts=NULL,
   )
   rm(list="data_stan")
 
-  pairs(fit_posterior, pars=c('a1', 'a2','a3','a4','h1','h3','u1','u2','v3','v4'))
+  # pairs plot if requried
+  # pairs(fit_posterior, pars=pars)
+
   samples_posterior <- as.data.frame(extract(fit_posterior,
                                              pars=c('a1', 'a2','a3','a4','h1','h3','u1','u2','v3','v4')))
   #samples_rat <- as.data.frame(extract(fit_posterior, pars=c('rat1', 'rat2')))
-  return(samples_posterior)
+  stan_output = list(samples_posterior=samples_posterior,fit_posterior=fit_posterior)
+  return(stan_output)
 }
 
 # Fitting of STAN model
-ODEFitting = function(iter=1120000) {
+ODEFitting = function(chains = chains,
+                      warmup = warmup,
+                      iter = iter,
+                      thin = thin){
+
   if (repairs_recoded == 'intact'){
     data_matrix <- matrix(tabulate_corrected_categories(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
       repairs_recoded = 'intact', reweighting =reweighting),nrow=5,ncol=7)
     print(paste0('*i: ',required_net_type))
-    samples_posterior <- netdurability_run_fixqp(counts=data_matrix)
-    write.csv(samples_posterior,file=paste0('samples_posterior',required_options(),'.csv'))
   }
   if (repairs_recoded == 'holed'){
     data_matrix <- matrix(tabulate_corrected_categories(initial=hole_transitions$HoleStatus.i,final=hole_transitions$HoleStatus.f,
       repairs_recoded = 'holed', reweighting =reweighting),nrow=5,ncol=7)
     print(paste0('*h: ',required_net_type))
-    samples_posterior <- netdurability_run_fixqp(counts=data_matrix)
-    write.csv(samples_posterior,file=paste0('samples_posterior',required_options(),'.csv'))
   }
-return()
+  stan_output = netdurability_run_fixqp(counts=data_matrix,
+                                               chains = chains,
+                                               warmup = warmup,
+                                               iter = iter,
+                                               thin = thin)
+  write.csv(stan_output$samples_posterior,file=paste0('samples_posterior',required_options(),'.csv'))
+return(stan_output)
 }
 
 ODEinterval_estimates = function(){

@@ -41,7 +41,7 @@ modifiedinferno <- c("#FCFFA4FF","#FCAE12FF","#E75E2EFF","#AC2F5EFF","#63156EFF"
 mp_recomCol = c("#D55E00", "#009E73", "#0072A7","#C879C8")
 
 ### LOAD ESSENTIAL FUNCTIONS
-source("PMI_Markov_functions.R")
+source("NetDurability_functions.R")
 set_graphics_options()
 
 ### READ DATA INTO R FROM .csv FILES
@@ -70,9 +70,13 @@ plotPHIscatter()
 flowdiagrams()
 
 ## FITTING OF STAN MODEL
-# This can be extremely computationally expensive (depending on the number of iterations, which is specified by parameter iter)
-ODEFitting(iter=1120000)
+# This can be computationally expensive (depending on the number of iterations, which is specified by parameter iter)
+stan_output = ODEFitting(chains = 4,        # number of Markov chains
+           warmup = 500,    # number of warmup iterations per chain
+           iter = 4000,    # total number of iterations per chain
+           thin = 1)        # interval used for thinning outputs (to reduce size of output file))
 # The samples from the posterior are stored as a .csv file with default filename 'samples_posteriorAllDXAholedUseWts.csv'
+# Convergence diagnostics etc. can be obtained from stan_output$fit_posterior
 
 ## COMPUTATION OF INTERVAL ESTIMATES FOR THE ODE PARAMETERS AND DERIVED QUANTITIES
 # This requires considerable compute time for nsamples_posterior = 1000
